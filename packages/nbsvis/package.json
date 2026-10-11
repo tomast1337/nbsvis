@@ -4,8 +4,7 @@
   "description": "NBS visualization tool",
   "type": "module",
   "files": [
-    "dist",
-    "assets"
+    "dist"
   ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -14,6 +13,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./pixi": {
+      "types": "./dist/pixi/index.d.ts",
+      "import": "./dist/pixi.js"
     }
   },
   "publishConfig": {
@@ -26,6 +29,7 @@
   "scripts": {
     "dev": "vite build --watch --mode development --emptyOutDir=false",
     "build": "vite build --mode production",
+    "check:dist": "node scripts/check-dist.mjs",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "format": "prettier --write .",
@@ -42,9 +46,6 @@
     "jszip": "^3.10.1",
     "mitt": "^3.0.1"
   },
-  "peerDependencies": {
-    "pixi.js": "^8.8.1"
-  },
   "devDependencies": {
     "@jest/types": "^29.6.3",
     "@laynezh/vite-plugin-lib-assets": "^1.1.0",
@@ -60,5 +61,13 @@
     "typescript": "5.8.2",
     "vite": "^6.3.0",
     "vite-plugin-dts": "^4.5.3"
+  },
+  "peerDependencies": {
+    "pixi.js": "^8.8.1"
+  },
+  "peerDependenciesMeta": {
+    "pixi.js": {
+      "optional": true
+    }
   }
 }

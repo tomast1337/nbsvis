@@ -2,7 +2,7 @@ import type { Song } from '@encode42/nbs.js';
 
 import { loadCustomInstruments } from './instrument';
 
-jest.mock('./assets', () => ({
+jest.mock('./instrument-assets/manifest', () => ({
   __esModule: true,
   default: {},
 }));

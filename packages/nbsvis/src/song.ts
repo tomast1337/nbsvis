@@ -4,7 +4,7 @@
 import { Song } from '@encode42/nbs.js';
 import JSZIP from 'jszip';
 
-import { NoteBuffer } from './note';
+import { NoteBuffer } from './note-buffer';
 import { loadNbsFromBuffer } from './util/nbsCompat';
 
 function isZipFile(buffer: ArrayBuffer) {
@@ -147,60 +147,55 @@ export function getTempoSegments(song: Song) {
   return tempoSegments;
 }
 
-export function getNoteEvents(song: Song) {
-  const forEachEvent = (
-    callback: (event: {
-      tick: number;
-      sampleId: number;
-      pitch: number;
-      gain: number;
-      pan: number;
-    }) => void,
-  ) => {
-    for (const layer of song.layers) {
-      for (const tickStr in layer.notes) {
-        const note = layer.notes[tickStr];
+export type ScheduledNoteCallback = (
+  layerIndex: number,
+  tick: number,
+  sampleId: number,
+  pitch: number,
+  gain: number,
+  pan: number,
+) => void;
 
-        const tick = parseInt(tickStr, 10);
-        const instrument = note.instrument;
-        const instrumentKeyOffset = song.instruments.loaded[instrument].key - 45;
-        const key = note.key + instrumentKeyOffset + note.pitch / 100;
-        const velocity = ((note.velocity / 100) * layer.volume) / 100;
-        const panning =
-          (layer.stereo === 0 ? note.panning : (note.panning + layer.stereo) / 2) / 100;
+/** Iterates playable notes in the same order and with the same pitch/gain/pan math as `getNoteEvents`. */
+export function forEachScheduledNote(song: Song, callback: ScheduledNoteCallback): void {
+  song.layers.forEach((layer, layerIndex) => {
+    for (const tickStr in layer.notes) {
+      const note = layer.notes[tickStr];
 
-        if (velocity === 0) continue;
+      const tick = parseInt(tickStr, 10);
+      const instrument = note.instrument;
+      const instrumentKeyOffset = song.instruments.loaded[instrument].key - 45;
+      const key = note.key + instrumentKeyOffset + note.pitch / 100;
+      const velocity = ((note.velocity / 100) * layer.volume) / 100;
+      const panning = (layer.stereo === 0 ? note.panning : (note.panning + layer.stereo) / 2) / 100;
 
-        callback({
-          tick,
-          sampleId: instrument,
-          pitch: 2 ** ((key - 45) / 12),
-          gain: velocity,
-          pan: panning,
-        });
-      }
+      if (velocity === 0) continue;
+
+      callback(layerIndex, tick, instrument, 2 ** ((key - 45) / 12), velocity, panning);
     }
-  };
+  });
+}
 
+export function getNoteEvents(song: Song) {
   let noteCount = 0;
   let maxTick = 0;
-  forEachEvent(({ tick }) => {
+  forEachScheduledNote(song, (_layerIndex, tick) => {
     noteCount += 1;
     if (tick > maxTick) maxTick = tick;
   });
 
-  const tickCount = maxTick + 1;
+  const tickCount = Math.max(song.length, maxTick + 1, 1);
   const noteBuffer = NoteBuffer.allocate(noteCount, tickCount);
 
   const noteCountsPerTick = new Uint32Array(tickCount);
-  forEachEvent((event) => {
-    noteCountsPerTick[event.tick] += 1;
+  forEachScheduledNote(song, (_layerIndex, tick) => {
+    noteCountsPerTick[tick] += 1;
   });
 
   noteBuffer.initializeTickOffsets(noteCountsPerTick);
 
-  forEachEvent((event) => {
-    noteBuffer.writeNote(event.tick, event.sampleId, event.pitch, event.gain, event.pan);
+  forEachScheduledNote(song, (_layerIndex, tick, sampleId, pitch, gain, pan) => {
+    noteBuffer.writeNote(tick, sampleId, pitch, gain, pan);
   });
 
   return noteBuffer;

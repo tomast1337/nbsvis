@@ -6,7 +6,9 @@ const config: Config.InitialOptions = {
   moduleFileExtensions: ['js', 'ts', 'json'],
   modulePaths: ['<rootDir>/src'],
   transform: {
-    '^.+\\.ts$': 'ts-jest',
+    // Transpile only: type checking is the typecheck job's responsibility, and it avoids
+    // needing prebuilt `dist/` type declarations of sibling workspace packages.
+    '^.+\\.ts$': ['ts-jest', { isolatedModules: true }],
   },
   collectCoverageFrom: ['src/**', '!**/*.d.ts'],
 };

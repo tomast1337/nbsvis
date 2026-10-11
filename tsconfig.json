@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/nbsvis/tsconfig.typecheck.json" },
-    { "path": "./apps/nbsvis-demo/tsconfig.typecheck.json" }
+    { "path": "./apps/nbsvis-demo/tsconfig.typecheck.json" },
+    { "path": "./apps/nbsvis-three-osc-demo/tsconfig.typecheck.json" }
   ]
 }

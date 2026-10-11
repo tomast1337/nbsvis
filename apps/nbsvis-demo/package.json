@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@opennbs/nbsvis": "workspace:*",
-    "coi-serviceworker": "^0.1.7"
+    "coi-serviceworker": "^0.1.7",
+    "pixi.js": "^8.8.1"
   },
   "devDependencies": {
     "typescript": "~5.7.2",

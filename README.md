@@ -4,23 +4,37 @@
 
 Web player and visualizer for Note Block Studio songs
 
-## Single entrypoint
+## Package
 
-`@opennbs/nbsvis` is a single entrypoint.
-Viewer classes are exported directly, and `pixi.js` is provided by the consuming app.
+**`@opennbs/nbsvis`** is the only package you need to install. It contains:
+
+- the core (`Player`, song loading, the `NbsvisViewerBackend` / `NbsvisAudioBackend` contracts, `NoteBuffer`, and the default Web Audio engine). The core entry imports nothing else.
+- an optional Pixi.js viewer, exposed as `@opennbs/nbsvis/pixi`. `pixi.js` is an optional peer dependency: install it (`pnpm add pixi.js`) only if you use `PixiViewer`.
+
+Bring your own viewer or audio backend by implementing the contracts exported from `@opennbs/nbsvis`.
+
+## Usage
+
+Create a viewer backend (typically `PixiViewer` from `@opennbs/nbsvis/pixi`), mount it, initialize Pixi, then construct `Player` with `viewerBackend` and optional `webAudio` options:
+
+```ts
+import { Player } from '@opennbs/nbsvis';
+import { PixiViewer } from '@opennbs/nbsvis/pixi';
+
+const viewer = new PixiViewer();
+viewer.mount(container);
+viewer.setViewMode('piano-roll');
+await viewer.init();
+
+const player = new Player({
+  viewerBackend: viewer,
+  webAudio: { urlBase: import.meta.env.BASE_URL },
+});
+```
 
 ## Configurable worker/worklet URL base
 
-The audio engine no longer derives worker/worklet URLs from `document.baseURI`.
-Pass `urlBase`, or explicit `workerUrl` / `workletUrl`, via `Player` options:
-
-```ts
-const player = new Player(viewer, {
-  audioEngine: {
-    urlBase: import.meta.env.BASE_URL,
-  },
-});
-```
+Pass `urlBase`, or explicit `workerUrl` / `workletUrl`, via `webAudio` when using the default Web Audio engine, or inject a custom `audioBackend` that implements `NbsvisAudioBackend`.
 
 ## Release
 

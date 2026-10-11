@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="coi-serviceworker.js"></script>
+    <link rel="stylesheet" href="src/style.css" />
+    <title>nbsvis three oscillator demo</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div class="hud">
+      <h1>Three.js Oscillator Piano</h1>
+      <p>Playback is driven by .nbs note data (pitch, pan, velocity).</p>
+      <p id="controlsInfo">
+        The camera orbits the piano; drag to look around, scroll to zoom. Press Z for FPS mode (WASD
+        + mouse, Space/Shift up/down).
+      </p>
+      <p id="status">Audio not started</p>
+      <div class="controls">
+        <div class="playback-controls">
+          <input id="seek" type="range" min="0" max="100" step="1" value="0" />
+          <button id="togglePlay" title="Play / Pause">▶️</button>
+          <button id="stop" title="Stop">⏹️</button>
+          <button id="toggleLoop" title="Toggle loop">➡</button>
+        </div>
+        <div class="song-input">
+          <input id="songFile" type="file" accept=".nbs,.zip" />
+          <input id="songUrl" type="text" placeholder="or enter noteblock.world URL" />
+          <button id="loadSong">Load song</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="src/main.ts"></script>
+  </body>
+</html>

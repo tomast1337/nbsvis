@@ -1,19 +1,16 @@
-import { Song } from '@encode42/nbs.js';
-
-import { RingBufferState } from './audio/buffer';
+import type { AudioPlaybackPayload, NbsvisAudioBackend } from '../audio-backend';
+import { RingBufferState } from './buffer';
 import {
   EngineMessage,
   EngineToWorkerMessage,
   EngineToWorkletMessage,
   WorkletToEngineMessage,
-} from './audio/event';
-import { AudioWorkerInitOptions } from './audio/worker/audio-worker';
-import audioWorkerUrl from './audio/worker/audio-worker?worker&url';
-import workletUrl from './audio/worklet/audio-sink-processor?worker&url';
-import { PlaybackState } from './audio/worklet/state';
-import PlayerInstrument, { defaultInstruments, MissingAudioFileError } from './instrument';
-import { NoteBuffer } from './note';
-import { getTempoChangeEvents, getTempoSegments } from './song';
+} from './event';
+import { tempoSegmentsToChangeRecord } from './tempo-expand';
+import { AudioWorkerInitOptions } from './worker/audio-worker';
+import audioWorkerUrl from './worker/audio-worker?worker&url';
+import workletUrl from './worklet/audio-sink-processor?worker&url';
+import { PlaybackState } from './worklet/state';
 
 function ensureTrailingSlash(url: string): string {
   return url.endsWith('/') ? url : `${url}/`;
@@ -43,38 +40,7 @@ function decodeAudioData(ctx: AudioContext, buffer: ArrayBuffer): Promise<AudioB
   return ctx.decodeAudioData(buffer);
 }
 
-async function loadAudio(ctx: AudioContext, ins: PlayerInstrument): Promise<AudioBuffer | null> {
-  const { audioSource } = ins;
-  if (!audioSource) {
-    if (ins.isBuiltIn) {
-      throw new MissingAudioFileError(ins.id, ins.name);
-    }
-    return null;
-  }
-
-  let arrayBuffer: ArrayBuffer;
-  if (typeof audioSource === 'string') {
-    const response = await fetch(audioSource);
-    if (!response.ok) {
-      throw new MissingAudioFileError(ins.id, ins.name, audioSource);
-    }
-    arrayBuffer = await response.arrayBuffer();
-  } else {
-    // decodeAudioData detaches the buffer; clone so callers can reuse the original
-    arrayBuffer = audioSource.slice(0);
-  }
-
-  try {
-    return await decodeAudioData(ctx, arrayBuffer);
-  } catch {
-    throw new MissingAudioFileError(ins.id, ins.name);
-  }
-}
-
-export class AudioEngine {
-  instruments: Array<PlayerInstrument>;
-  tempoSegments?: Record<number, number>;
-
+export class AudioEngine implements NbsvisAudioBackend {
   private worker?: Worker;
   private mixerNode?: AudioWorkletNode;
   private sharedTickBuffer?: SharedArrayBuffer;
@@ -86,13 +52,9 @@ export class AudioEngine {
   private options: AudioEngineOptions;
 
   constructor(options: AudioEngineOptions = {}) {
-    this.instruments = [...defaultInstruments];
     this.options = options;
   }
 
-  /**
-   * Lazily prepare the audio worklet and upload instrument samples.
-   */
   public async init() {
     if (this.initPromise) return this.initPromise;
     this.initPromise = this.initialize();
@@ -102,19 +64,15 @@ export class AudioEngine {
   private async initialize() {
     this.nativeCtx = new AudioContext();
 
-    // Set up shared state buffer
     this.sharedTickBuffer = new SharedArrayBuffer(
       Int32Array.BYTES_PER_ELEMENT * PlaybackState.SIZE,
     );
     this.tickView = new Int32Array(this.sharedTickBuffer);
 
-    // Set up shared ring buffer
-    // RB_CAPACITY is measured in frames (not interleaved samples)
-    const workletBlockSize = 128;
     const workerBlockSize = 512;
-    const frameCapacity = 256 * workletBlockSize; // 32768 frames (~682 ms @ 48 kHz)
-    const sampleCapacity = frameCapacity * 2; // interleaved stereo samples
-    const metaCapacity = frameCapacity / workerBlockSize; // one byte per 512-frame worker block
+    const frameCapacity = 256 * workerBlockSize;
+    const sampleCapacity = frameCapacity * 2;
+    const metaCapacity = frameCapacity / workerBlockSize;
 
     const ringBufferData = new SharedArrayBuffer(Float32Array.BYTES_PER_ELEMENT * sampleCapacity);
     const ringBufferMeta = new SharedArrayBuffer(Int8Array.BYTES_PER_ELEMENT * metaCapacity);
@@ -127,7 +85,6 @@ export class AudioEngine {
     rbState[RingBufferState.RB_WRITE_INDEX] = 0;
     rbState[RingBufferState.RB_CAPACITY] = frameCapacity;
 
-    // Spawn the DSP worker
     const workerUrl =
       this.options.workerUrl ?? resolveAssetUrl(audioWorkerUrl, this.options.urlBase);
     console.log('Spawning audio worker from:', workerUrl);
@@ -136,7 +93,6 @@ export class AudioEngine {
       console.error('Audio worker error:', error);
     };
 
-    // Initialize worker with SharedArrayBuffers
     console.log('Initializing audio worker...');
     this.worker.postMessage({
       type: 'init',
@@ -174,29 +130,23 @@ export class AudioEngine {
       }
     };
 
-    // chain: mixer -> compressor -> limiter -> masterGain -> destination
-
-    // Soft compressor to smooth out dynamics
     const compressor = this.nativeCtx.createDynamicsCompressor();
-    compressor.threshold.value = -24; // threshold in dB
-    compressor.knee.value = 30; // knee in dB
-    compressor.ratio.value = 12; // compression ratio
-    compressor.attack.value = 0.003; // attack time in seconds
-    compressor.release.value = 0.25; // release time in seconds
+    compressor.threshold.value = -24;
+    compressor.knee.value = 30;
+    compressor.ratio.value = 12;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
 
-    // Brick-wall limiter to prevent clipping
     const limiter = this.nativeCtx.createDynamicsCompressor();
-    limiter.threshold.value = -3; // threshold in dB
-    limiter.knee.value = 0; // knee in dB
+    limiter.threshold.value = -3;
+    limiter.knee.value = 0;
     limiter.ratio.value = 20;
-    limiter.attack.value = 0.001; // attack time in seconds
-    limiter.release.value = 0.1; // release time in seconds
+    limiter.attack.value = 0.001;
+    limiter.release.value = 0.1;
 
-    // Gain node for master volume
     const masterGainNode = this.nativeCtx.createGain();
     masterGainNode.gain.value = 0.5;
 
-    // Output chain
     this.mixerNode.connect(compressor);
     compressor.connect(limiter);
     limiter.connect(masterGainNode);
@@ -254,23 +204,24 @@ export class AudioEngine {
     }
   }
 
-  private async loadSounds() {
+  private async decodeAndUploadSamples(payload: AudioPlaybackPayload) {
     const ctx = this.nativeCtx!;
 
-    for (const ins of this.instruments) {
-      if (!ins) continue;
+    const ids = Object.keys(payload.instrumentBuffers)
+      .map(Number)
+      .sort((a, b) => a - b);
 
-      let audioBuffer: AudioBuffer | null;
+    for (const sampleId of ids) {
+      const raw = payload.instrumentBuffers[sampleId];
+      const arrayBuffer = raw.slice(0);
+
+      let audioBuffer: AudioBuffer;
       try {
-        audioBuffer = await loadAudio(ctx, ins);
+        audioBuffer = await decodeAudioData(ctx, arrayBuffer);
       } catch (err) {
-        if (err instanceof MissingAudioFileError) {
-          console.error(err);
-          continue;
-        }
-        throw err;
+        console.error(`Failed to decode audio for instrument ${sampleId}`, err);
+        continue;
       }
-      if (!audioBuffer) continue;
 
       const channels: Float32Array[] = [];
       for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
@@ -279,64 +230,37 @@ export class AudioEngine {
 
       this.dispatch({
         type: 'sample',
-        sampleId: ins.id,
+        sampleId,
         channels,
       });
     }
 
-    console.debug('All instruments loaded into worker.');
+    console.debug('All instrument samples loaded into worker.');
   }
 
-  private resetSounds() {
-    this.instruments = [...defaultInstruments];
-  }
-
-  public async loadSong(song: Song, noteData: NoteBuffer, instruments: Array<PlayerInstrument>) {
+  public async loadSong(payload: AudioPlaybackPayload) {
     await this.init();
     this.playbackEnded = false;
 
-    this.resetSounds();
-    for (const ins of instruments) {
-      this.instruments[ins.id] = ins;
-    }
-
-    this.tempoSegments = getTempoSegments(song);
-    const noteEvents = noteData.getBuffer();
-    const tempoChangeEvents = getTempoChangeEvents(song);
-
-    // Suspend worker rendering while samples are reloaded and the new song is
-    // scheduled. scheduleSong must run only after loadSounds completes.
+    // Suspend worker rendering and drop samples from the previous song; the new
+    // song must only be scheduled once all samples have been uploaded.
     this.dispatch({ type: 'prepare-song' });
-    await this.loadSounds();
-    this.scheduleSong(
-      noteEvents,
-      tempoChangeEvents,
-      song.tempo * 15,
-      song.length,
-      song.loop.startTick,
-    );
+    await this.decodeAndUploadSamples(payload);
 
-    this.dispatch({ type: 'start' });
-  }
+    const { timeline, noteData, loopStartTick, ticksPerBeat } = payload;
+    const tempoChanges = tempoSegmentsToChangeRecord(timeline.tempoSegments);
 
-  private scheduleSong(
-    noteData: SharedArrayBuffer,
-    tempoChangeEvents: Record<number, number>,
-    tempo: number,
-    lengthTicks: number,
-    loopStartTick: number,
-  ) {
     this.dispatch({
       type: 'song',
-      noteData: noteData,
-      tempoChanges: tempoChangeEvents,
-      ticksPerBeat: 4,
-      initialTempo: tempo,
-      lengthTicks: lengthTicks,
-      loopStartTick: loopStartTick,
+      noteData,
+      tempoChanges,
+      ticksPerBeat,
+      initialTempo: timeline.initialTempo,
+      lengthTicks: timeline.lengthTicks,
+      loopStartTick,
     });
 
-    console.log('Song scheduled.');
+    this.dispatch({ type: 'start' });
   }
 
   public get loop() {
@@ -353,9 +277,9 @@ export class AudioEngine {
     return Atomics.load(this.tickView, PlaybackState.TICK) / 1000;
   }
 
-  public set currentTick(tick: number) {
-    // TODO: implement seconds-based seeking
+  public seekToTick(tick: number) {
     this.playbackEnded = false;
+    // Worker transport expects a tick; the message field is historically named `seconds`.
     this.dispatch({ type: 'seek', seconds: tick });
   }
 
@@ -378,25 +302,27 @@ export class AudioEngine {
     return this.playbackEnded;
   }
 
-  public async play() {
+  public play() {
     const restartFromEnded = this.playbackEnded;
     if (restartFromEnded) {
       this.playbackEnded = false;
     }
 
-    await this.init();
+    void (async () => {
+      await this.init();
 
-    const ctx = this.nativeCtx!;
+      const ctx = this.nativeCtx!;
 
-    if (ctx.state !== 'running') {
-      await ctx.resume();
-    }
+      if (ctx.state !== 'running') {
+        await ctx.resume();
+      }
 
-    if (restartFromEnded) {
-      this.dispatch({ type: 'seek', seconds: 0 });
-    }
+      if (restartFromEnded) {
+        this.dispatch({ type: 'seek', seconds: 0 });
+      }
 
-    this.dispatch({ type: 'play' });
+      this.dispatch({ type: 'play' });
+    })();
   }
 
   public pause() {
@@ -404,7 +330,6 @@ export class AudioEngine {
   }
 
   public stop() {
-    // TODO: this should stop the worker too
     this.playbackEnded = false;
     this.dispatch({ type: 'stop' });
   }

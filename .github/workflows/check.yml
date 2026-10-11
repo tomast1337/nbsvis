@@ -141,3 +141,6 @@ jobs:
 
       - name: Build
         run: pnpm build:demo
+
+      - name: Verify package install story
+        run: pnpm check:dist

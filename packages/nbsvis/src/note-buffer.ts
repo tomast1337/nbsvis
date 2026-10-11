@@ -25,9 +25,7 @@ type TypedArrayConstructor<T extends TypedArray> = {
 export class NoteBuffer {
   static readonly HEADER_SIZE = Uint32Array.BYTES_PER_ELEMENT * 2; // noteCount + tickCount
 
-  // Each note occupies 40 bytes (non-adjacent) in the array.
-  // We store larger types first to eliminate padding
-  // (e.g. storing Uint8 first could require padding to align an Int16 later).
+  // Store larger types first to keep each view naturally aligned.
   static readonly TICK_OFFSET_TYPE: TypedArrayConstructor<Uint32Array> = Uint32Array;
   static readonly PITCH_TYPE: TypedArrayConstructor<Int16Array> = Int16Array;
   static readonly INSTRUMENT_TYPE: TypedArrayConstructor<Uint8Array> = Uint8Array;

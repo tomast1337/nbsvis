@@ -19,12 +19,16 @@ export default defineConfig(({ mode }: UserConfig) => {
       sourcemap: mode === 'development',
       minify: mode === 'production' ? 'esbuild' : false,
       lib: {
-        entry: resolve(__dirname, 'src/index.ts'),
-        name: 'nbsvis',
-        fileName: 'index',
+        // `index` is the core; `pixi` is the optional Pixi.js viewer (`@opennbs/nbsvis/pixi`)
+        entry: {
+          index: resolve(__dirname, 'src/index.ts'),
+          pixi: resolve(__dirname, 'src/pixi/index.ts'),
+        },
         formats: ['es'], // TODO: umd, cjs (remove top-level await)
+        fileName: (_format: string, entryName: string) => `${entryName}.js`,
       },
       rollupOptions: {
+        // optional peer dependency: provided by the app that imports `@opennbs/nbsvis/pixi`
         external: ['pixi.js'],
       },
     },

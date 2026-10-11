@@ -11,6 +11,7 @@ This repository uses semantic-release to automate versioning, npm publishing, an
 ## What gets released
 
 - The library package (`packages/nbsvis`) is the production artifact and publishes to `@opennbs/nbsvis`.
+- The optional Pixi viewer ships inside the same package as the `@opennbs/nbsvis/pixi` subpath export. `pixi.js` is an optional peer dependency, so apps that don't use the Pixi viewer never install it.
 - A git tag (`vX.Y.Z`) and GitHub Release are created automatically.
 - No release commit is created and no `CHANGELOG.md` file is written by semantic-release.
 

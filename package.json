@@ -9,10 +9,11 @@
   ],
   "scripts": {
     "dev": "pnpm --parallel dev",
-    "build": "pnpm --filter ./packages/* build",
+    "build": "pnpm --filter '@opennbs/*' build",
+    "check:dist": "pnpm --filter '@opennbs/*' --if-present check:dist",
     "build:demo": "pnpm build && pnpm --filter ./apps/nbsvis-demo build",
     "typecheck": "tsc -b tsconfig.json",
-    "test": "pnpm --filter ./packages/* test",
+    "test": "pnpm --filter '@opennbs/*' test",
     "lint": "eslint . --fix",
     "lint:check": "eslint .",
     "format": "prettier --write .",
